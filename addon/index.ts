@@ -8656,6 +8656,12 @@ addon.use((err, req, res, next) => {
 
 // Blocking startup function that waits for cache warming
 async function startServerWithCacheWarming() {
+  try {
+    await require("./lib/cacheWarmer").lockLegacySystemConfig();
+  } catch (error) {
+    consola.warn('[Server Startup] Could not check the system config password:', error.message);
+  }
+
   if (isCacheWarmingEnabled()) {
     consola.info('[Server Startup] Waiting for initial cache warming to complete...');
     const { warmEssentialContent } = require("./lib/cacheWarmer");
