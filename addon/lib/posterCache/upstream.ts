@@ -136,6 +136,8 @@ export const IMAGE_TYPES: Record<string, string> = {
   gif: 'image/gif',
 };
 
+const RASTER_TYPES = new Set([...Object.values(IMAGE_TYPES), 'image/jpg']);
+
 function imageTypeFromPath(url: string): string {
   try {
     const path = new URL(url).pathname.toLowerCase();
@@ -456,7 +458,9 @@ export async function openImageStream(rawUrl: string, opts: FetchOptions = {}): 
     // silent rather than the response being thrown away.
     const contentType = header || imageTypeFromPath(current);
 
-    if (!contentType.startsWith('image/')) {
+    // Raster types only: an SVG is an image/* type that runs script when opened,
+    // and it would be served from this origin.
+    if (!RASTER_TYPES.has(contentType.toLowerCase())) {
       response.data?.destroy?.();
       throw new UpstreamRejected(`Upstream returned non-image content: ${header || 'unknown'}`, 502);
     }

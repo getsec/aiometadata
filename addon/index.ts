@@ -165,6 +165,8 @@ addon.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  // Proxied and cached bytes keep their declared type; never let a browser guess HTML.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   // Reply to preflight immediately
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -6649,29 +6651,31 @@ addon.get("/stremio/:userUUID/rating", async function (req, res) {
     }
     
     const pageTitle = metaTitle ? `Rate ${metaTitle} - AIO Metadata` : 'Rate This Title - AIO Metadata';
-    html = html.replace(
-      /<title>.*?<\/title>/,
-      `<title>${pageTitle}</title>`
-    );
+    const escapedTitle = pageTitle.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    // Function replacers: a string replacement would expand `$&` and `$'` in the values.
+    html = html.replace(/<title>.*?<\/title>/, () => `<title>${escapedTitle}</title>`);
+    // JSON.stringify leaves `<` alone, so `</script>` in any value would end the
+    // script block; U+2028/U+2029 are escaped for older script parsers.
+    const toScript = (value) => JSON.stringify(value)
+      .replace(/</g, '\\u003c')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029');
     
     const ratingScript = `
       <script>
         window.RATING_MODE = true;
-        window.RATING_USER = ${JSON.stringify(userUUID)};
-        window.RATING_ID = ${JSON.stringify(id || '')};
-        window.RATING_TYPE = ${JSON.stringify(metaType)};
-        window.RATING_TITLE = ${JSON.stringify(metaTitle || req.query.title || '')};
-        window.RATING_POSTER = ${JSON.stringify(metaPoster)};
-        window.RATING_DESCRIPTION = ${JSON.stringify(metaDescription)};
-        window.RATING_AVAILABLE_SERVICES = ${JSON.stringify(availableServices)};
+        window.RATING_USER = ${toScript(userUUID)};
+        window.RATING_ID = ${toScript(id || '')};
+        window.RATING_TYPE = ${toScript(metaType)};
+        window.RATING_TITLE = ${toScript(metaTitle || req.query.title || '')};
+        window.RATING_POSTER = ${toScript(metaPoster)};
+        window.RATING_DESCRIPTION = ${toScript(metaDescription)};
+        window.RATING_AVAILABLE_SERVICES = ${toScript(availableServices)};
       </script>
     `;
     
     // Add rating-specific script
-    html = html.replace(
-      '</head>',
-      ratingScript + '</head>'
-    );
+    html = html.replace('</head>', () => ratingScript + '</head>');
     
     res.send(html);
   } catch (error) {
