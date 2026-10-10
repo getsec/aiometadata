@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import { envInt } from '../utils/envNumber';
-import { httpGet } from '../utils/httpClient';
+import { httpGetPublic as httpGet } from './posterCache/upstream';
 
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
 

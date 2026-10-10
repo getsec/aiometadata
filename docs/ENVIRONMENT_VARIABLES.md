@@ -896,6 +896,7 @@ Art the addon **passes through without storing** is decided by a chain of its ow
   You usually **don't** need this with **Proxy Rating & Custom Art** on: those URLs are signed, and a valid signature grants the exception on its own. You **do** need it with the art proxy off, when art goes to the direct route, which carries no signature.
 
   **If art from your own network stopped loading**, it is being refused because nothing proved the addon issued the URL — a warning naming the host is logged. Either list it here, or set [`IMAGE_PROXY_SIGNING_SECRET`](#image_proxy_signing_secret) so proxy art URLs are signed. With no secret set, nothing is signed and nothing can claim the exception.
+  The same guard and allowlist cover every other URL a user can point the addon at: manifests imported in the configure page, AIOManager (Hydra) instances, the trailer addon and StremThru. **If a self-hosted manager or addon on your LAN is now refused, list its hostname here.**
 - **Example**: `POSTER_CACHE_ALLOWED_HOSTS=postersplus,xrdb`
 
 ### `IMAGE_PROXY_SIGNING_SECRET`

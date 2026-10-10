@@ -409,35 +409,70 @@ function releaseSocketWith(response: any): void {
  * and DNS pinning as the art proxy, re-checked on every redirect hop, so a
  * caller-chosen URL cannot reach the LAN, loopback or cloud metadata.
  */
-export async function fetchPublicText(rawUrl: string, maxBytes = 2 * 1024 * 1024): Promise<{ text: string; contentType: string }> {
+export interface PublicTextOptions {
+  /** A POST is never redirected: its body is not re-sent to wherever a Location points. */
+  method?: 'GET' | 'POST';
+  data?: unknown;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export async function fetchPublicText(
+  rawUrl: string,
+  opts: PublicTextOptions = {},
+): Promise<{ status: number; text: string; contentType: string }> {
+  const method = opts.method || 'GET';
   let current = rawUrl;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const { url, httpAgent, httpsAgent } = await resolveConnection(current);
 
-    const response = await axios.get(url.toString(), {
+    const response = await axios.request({
+      url: url.toString(),
+      method,
+      data: opts.data,
       responseType: 'text',
       transformResponse: (body: string) => body,
-      timeout: getUpstreamTimeoutMs(),
+      timeout: opts.timeoutMs ?? getUpstreamTimeoutMs(),
       maxRedirects: 0,
       httpAgent,
       httpsAgent,
-      maxContentLength: maxBytes,
-      validateStatus: (status: number) => status >= 200 && status < 400,
-      headers: { 'User-Agent': `AIOMetadata/${buildInfo.version}` },
+      maxContentLength: opts.maxBytes ?? 2 * 1024 * 1024,
+      validateStatus: () => true,
+      headers: { 'User-Agent': `AIOMetadata/${buildInfo.version}`, ...opts.headers },
     });
 
-    if (response.status >= 300) {
+    if (method === 'GET' && response.status >= 300 && response.status < 400 && response.status !== 304) {
       const location = response.headers['location'];
       if (!location) throw new UpstreamRejected(`Redirect without Location from ${url.host}`, 502);
       current = new URL(location, url.toString()).toString();
       continue;
     }
 
-    return { text: String(response.data ?? ''), contentType: String(response.headers['content-type'] || '') };
+    return {
+      status: response.status,
+      text: String(response.data ?? ''),
+      contentType: String(response.headers['content-type'] || ''),
+    };
   }
 
   throw new UpstreamRejected('Too many redirects', 502);
+}
+
+/**
+ * Drop-in for httpClient's httpGet on URLs a user supplied: same `{ data, status }`
+ * result and `error.response.status` on failure, behind the public-address guard.
+ */
+export async function httpGetPublic(rawUrl: string, opts: { headers?: Record<string, string>; timeout?: number } = {}) {
+  const { status, text, contentType } = await fetchPublicText(rawUrl, { headers: opts.headers, timeoutMs: opts.timeout });
+  if (status < 200 || status >= 300) {
+    const error: any = new Error(`Request failed with status code ${status}`);
+    error.response = { status, data: text };
+    throw error;
+  }
+  const data = contentType.includes('application/json') ? (text ? JSON.parse(text) : null) : text;
+  return { data, status };
 }
 
 export async function openImageStream(rawUrl: string, opts: FetchOptions = {}): Promise<UpstreamStream> {

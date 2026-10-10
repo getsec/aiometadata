@@ -1,4 +1,4 @@
-const { httpGet } = require("./httpClient");
+const { httpGetPublic: httpGet } = require("../lib/posterCache/upstream");
 const { cacheWrapMetaSmart } = require("../lib/getCache");
 const { getMeta } = require("../lib/getMeta");
 const Utils = require("./parseProps");

@@ -4319,30 +4319,33 @@ addon.post("/api/integrations/credential", async (req, res) => {
 // Relays one Hydra reinstall. Shared by the single-account route and the batch below
 // so both apply the same manifest-origin guard and read upstream errors the same way.
 async function hydraReinstall(instanceUrl: string, apiKey: string, addonUrl: string) {
-  const { httpPost } = require('./utils/httpClient');
+  const { fetchPublicText } = require('./lib/posterCache/upstream.js');
   const target = `${managerAccounts.normalizeInstanceUrl(instanceUrl)}/hydra/reinstall`;
   try {
-    const response = await httpPost(target, { addonUrl }, {
-      headers: { 'X-API-Key': apiKey },
-      timeout: 15000
+    const { status, text, contentType } = await fetchPublicText(target, {
+      method: 'POST',
+      data: { addonUrl },
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      timeoutMs: 15000
     });
-    if (typeof response.data === 'string') {
-      consola.warn(`[AIOManager Proxy] Non-JSON response from ${target} (status ${response.status}); this instance does not expose the Hydra API, reinstall was not processed`);
-      return { ok: false, status: 502, error: "Your AIOManager instance does not support the Hydra API yet (it requires a newer AIOManager release), so the sync was not processed" };
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (status >= 200 && status < 300) {
+      if (!contentType.includes('application/json')) {
+        consola.warn(`[AIOManager Proxy] Non-JSON response from ${target} (status ${status}); this instance does not expose the Hydra API, reinstall was not processed`);
+        return { ok: false, status: 502, error: "Your AIOManager instance does not support the Hydra API yet (it requires a newer AIOManager release), so the sync was not processed" };
+      }
+      return { ok: true, status: 200, data: data ?? { success: true } };
     }
-    return { ok: true, status: 200, data: response.data ?? { success: true } };
-  } catch (error: any) {
-    const upstreamStatus = error.response?.status;
-    let upstreamData = error.response?.data;
-    if (typeof upstreamData === 'string') {
-      try { upstreamData = JSON.parse(upstreamData); } catch { upstreamData = null; }
-    }
-    consola.error(`[AIOManager Proxy] Hydra reinstall failed: ${error.message}`);
+    consola.error(`[AIOManager Proxy] Hydra reinstall failed with status ${status}`);
     return {
       ok: false,
-      status: upstreamStatus >= 400 && upstreamStatus < 600 ? upstreamStatus : 502,
-      error: upstreamData?.error || upstreamData?.message || error.message || "Hydra reinstall failed"
+      status: status >= 400 && status < 600 ? status : 502,
+      error: data?.error || data?.message || "Hydra reinstall failed"
     };
+  } catch (error: any) {
+    consola.error(`[AIOManager Proxy] Hydra reinstall failed: ${error.message}`);
+    return { ok: false, status: error.status === 403 ? 403 : 502, error: "Hydra reinstall failed" };
   }
 }
 
@@ -4527,13 +4530,14 @@ addon.get("/api/aiomanager/status", async (req, res) => {
   }
 
   try {
-    const { httpGet } = require('./utils/httpClient');
-    const response = await httpGet(`${instanceUrl.replace(/\/+$/, '')}/hydra/status`, { timeout: 10000 });
+    const { fetchPublicText } = require('./lib/posterCache/upstream.js');
+    parsed.pathname = `${parsed.pathname.replace(/\/+$/, '')}/hydra/status`;
+    parsed.search = '';
+    parsed.hash = '';
+    const { status, text, contentType } = await fetchPublicText(parsed.toString(), { timeoutMs: 10000 });
     // Releases without Hydra answer the SPA catch-all, so HTML means unsupported.
-    if (typeof response.data === 'string' || !response.data?.capabilities) {
-      return res.json({ supported: false });
-    }
-    return res.json({ supported: true, ...response.data });
+    const data = status === 200 && contentType.includes('application/json') ? JSON.parse(text) : null;
+    return res.json({ supported: !!data?.capabilities });
   } catch (error) {
     consola.debug(`[AIOManager Proxy] Status probe failed for ${instanceUrl}: ${error.message}`);
     return res.json({ supported: false });
@@ -6265,7 +6269,10 @@ addon.get("/api/proxy-manifest", async function (req, res) {
 
   try {
     const { fetchPublicText } = require('./lib/posterCache/upstream.js');
-    const { text, contentType } = await fetchPublicText(url);
+    const { status, text, contentType } = await fetchPublicText(url, { timeoutMs: 10000 });
+    if (status < 200 || status >= 300) {
+      return res.status(502).json({ error: 'Failed to fetch manifest' });
+    }
     const data = contentType.includes('application/json') ? (text ? JSON.parse(text) : null) : text;
 
     // Set CORS headers to allow frontend access
