@@ -131,12 +131,21 @@ async function ensureSystemConfig() {
   const database = require('./database');
   const crypto = require('crypto');
   const systemUUID = process.env.CACHE_WARMUP_UUID || 'system-cache-warmer';
-  const systemPasswordHash = crypto.createHash('sha256').update('system-internal').digest('hex');
+  // Nobody signs in to the system config, so its password is random and never
+  // kept. Older releases used sha256('system-internal'), which anyone could use
+  // to load or overwrite it; that known hash is replaced on the next start.
+  const legacyPasswordHash = crypto.createHash('sha256').update('system-internal').digest('hex');
+  const systemPasswordHash = crypto.createHash('sha256').update(crypto.randomBytes(32)).digest('hex');
   
   try {
     // Check if system config already exists
     const existingConfig = await database.getUserConfig(systemUUID);
     if (existingConfig) {
+      const owner = await database.getUser(systemUUID);
+      if (owner?.password_hash === legacyPasswordHash) {
+        await database.saveUserConfig(systemUUID, systemPasswordHash, existingConfig);
+        logger.info('[System Config] Replaced the well-known system config password');
+      }
       // Only auto-update if using the default system config (not a user's custom UUID)
       const isSystemConfig = systemUUID === 'system-cache-warmer';
       if (isSystemConfig) {

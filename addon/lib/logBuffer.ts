@@ -91,6 +91,10 @@ const REDACTION_PATTERNS: Array<[RegExp, string]> = [
   [/\b(api[_-]?key|apikey|access[_-]?token|token|secret|password|client_secret)(["']?\s*[:=]\s*["']?)[A-Za-z0-9._\-]{6,}/gi, '$1$2***'],
   [/([?&](?:api_?key|apikey|token|key|password|client_secret|access_token)=)[^&\s"'#]+/gi, '$1***'],
   [/\bpm-[A-Za-z0-9]{20,}/g, 'pm-***'],
+  // OAuth token IDs are UUIDs that work as bearer credentials (anyone holding one
+  // can act on that account), so a UUID shortly after "token" keeps only enough
+  // to correlate log lines. A UUID after "user" is a user's and stays readable.
+  [/(\btoken(?:(?!user)[^\n]){0,40}?\b)([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '$1$2…'],
 ];
 
 function redact(s: string): string {
@@ -365,6 +369,11 @@ export function installLogReporter(): void {
   shareLogLevel(proto);
   const original = proto._log;
   proto._log = function patchedLog(logObj: any) {
+    // Redact before the original reporter too, so stdout and container logs
+    // carry no more than the dashboard does.
+    if (Array.isArray(logObj?.args)) {
+      logObj.args = logObj.args.map((arg: unknown) => (typeof arg === 'string' ? redact(arg) : arg));
+    }
     handleLogObj(logObj);
 
     if (quietWindow) {

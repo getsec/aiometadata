@@ -4347,6 +4347,12 @@ addon.post("/api/integrations/credential", async (req, res) => {
 
 // Relays one Hydra reinstall. Shared by the single-account route and the batch below
 // so both apply the same manifest-origin guard and read upstream errors the same way.
+/** Says why a LAN address was refused and how to allow it, for the user who typed it. */
+function privateHostHint(error: any): string | null {
+  if (error?.status !== 403) return null;
+  return `${error.message}. Addresses on a private network are blocked unless the instance lists the host in POSTER_CACHE_ALLOWED_HOSTS.`;
+}
+
 async function hydraReinstall(instanceUrl: string, apiKey: string, addonUrl: string) {
   const { fetchPublicText } = require('./lib/posterCache/upstream.js');
   const target = `${managerAccounts.normalizeInstanceUrl(instanceUrl)}/hydra/reinstall`;
@@ -4374,7 +4380,7 @@ async function hydraReinstall(instanceUrl: string, apiKey: string, addonUrl: str
     };
   } catch (error: any) {
     consola.error(`[AIOManager Proxy] Hydra reinstall failed: ${error.message}`);
-    return { ok: false, status: error.status === 403 ? 403 : 502, error: "Hydra reinstall failed" };
+    return { ok: false, status: error.status === 403 ? 403 : 502, error: privateHostHint(error) || error.message || "Hydra reinstall failed" };
   }
 }
 
@@ -6300,7 +6306,8 @@ addon.get("/api/proxy-manifest", async function (req, res) {
     const { fetchPublicText } = require('./lib/posterCache/upstream.js');
     const { status, text, contentType } = await fetchPublicText(url, { timeoutMs: 10000 });
     if (status < 200 || status >= 300) {
-      return res.status(502).json({ error: 'Failed to fetch manifest' });
+      // Only public hosts get this far, so passing their status on maps nothing private.
+      return res.status(status >= 400 && status < 600 ? status : 502).json({ error: `Request failed with status code ${status}` });
     }
     const data = contentType.includes('application/json') ? (text ? JSON.parse(text) : null) : text;
 
@@ -6310,8 +6317,7 @@ addon.get("/api/proxy-manifest", async function (req, res) {
     res.json(data);
   } catch (error) {
     consola.error(`[Proxy Manifest] Failed to fetch manifest from ${url}:`, error.message);
-    // Upstream status codes are not echoed back: they would turn this into a port scanner.
-    res.status(error.status === 403 ? 403 : 502).json({ error: 'Failed to fetch manifest' });
+    res.status(error.status === 403 ? 403 : 502).json({ error: privateHostHint(error) || error.message || 'Failed to fetch manifest' });
   }
 });
 
