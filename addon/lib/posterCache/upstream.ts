@@ -404,6 +404,42 @@ function releaseSocketWith(response: any): void {
   });
 }
 
+/**
+ * Fetches a user-supplied URL as text with the same private-address refusal
+ * and DNS pinning as the art proxy, re-checked on every redirect hop, so a
+ * caller-chosen URL cannot reach the LAN, loopback or cloud metadata.
+ */
+export async function fetchPublicText(rawUrl: string, maxBytes = 2 * 1024 * 1024): Promise<{ text: string; contentType: string }> {
+  let current = rawUrl;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const { url, httpAgent, httpsAgent } = await resolveConnection(current);
+
+    const response = await axios.get(url.toString(), {
+      responseType: 'text',
+      transformResponse: (body: string) => body,
+      timeout: getUpstreamTimeoutMs(),
+      maxRedirects: 0,
+      httpAgent,
+      httpsAgent,
+      maxContentLength: maxBytes,
+      validateStatus: (status: number) => status >= 200 && status < 400,
+      headers: { 'User-Agent': `AIOMetadata/${buildInfo.version}` },
+    });
+
+    if (response.status >= 300) {
+      const location = response.headers['location'];
+      if (!location) throw new UpstreamRejected(`Redirect without Location from ${url.host}`, 502);
+      current = new URL(location, url.toString()).toString();
+      continue;
+    }
+
+    return { text: String(response.data ?? ''), contentType: String(response.headers['content-type'] || '') };
+  }
+
+  throw new UpstreamRejected('Too many redirects', 502);
+}
+
 export async function openImageStream(rawUrl: string, opts: FetchOptions = {}): Promise<UpstreamStream> {
   let current = rawUrl;
 

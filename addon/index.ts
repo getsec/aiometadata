@@ -6259,21 +6259,23 @@ addon.get("/api/proxy-manifest", async function (req, res) {
     return res.status(400).json({ error: 'Missing url parameter' });
   }
 
+  if (typeof url !== 'string') {
+    return res.status(400).json({ error: 'Invalid url parameter' });
+  }
+
   try {
-    const { httpGet } = require('./utils/httpClient');
-    const manifestData = await httpGet(url, {
-      timeout: 10000
-    });
-    
+    const { fetchPublicText } = require('./lib/posterCache/upstream.js');
+    const { text, contentType } = await fetchPublicText(url);
+    const data = contentType.includes('application/json') ? (text ? JSON.parse(text) : null) : text;
+
     // Set CORS headers to allow frontend access
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
-    res.json(manifestData.data);
+    res.json(data);
   } catch (error) {
     consola.error(`[Proxy Manifest] Failed to fetch manifest from ${url}:`, error.message);
-    res.status(error.response?.status || 500).json({ 
-      error: error.message || 'Failed to fetch manifest' 
-    });
+    // Upstream status codes are not echoed back: they would turn this into a port scanner.
+    res.status(error.status === 403 ? 403 : 502).json({ error: 'Failed to fetch manifest' });
   }
 });
 
