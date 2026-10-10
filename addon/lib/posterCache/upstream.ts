@@ -465,7 +465,8 @@ export async function fetchPublicText(
  * result and `error.response.status` on failure, behind the public-address guard.
  */
 export async function httpGetPublic(rawUrl: string, opts: { headers?: Record<string, string>; timeout?: number } = {}) {
-  const { status, text, contentType } = await fetchPublicText(rawUrl, { headers: opts.headers, timeoutMs: opts.timeout });
+  // httpGet had no size cap; a large StremThru catalog must still fit.
+  const { status, text, contentType } = await fetchPublicText(rawUrl, { headers: opts.headers, timeoutMs: opts.timeout, maxBytes: 32 * 1024 * 1024 });
   if (status < 200 || status >= 300) {
     const error: any = new Error(`Request failed with status code ${status}`);
     error.response = { status, data: text };
