@@ -125,9 +125,9 @@ async function warmEssentialContent() {
 }
 
 // Nobody signs in to the system config, so its password is random and never
-// kept. Older releases used sha256('system-internal'), which anyone could use to
-// load or overwrite it.
-const LEGACY_SYSTEM_PASSWORD_HASH = require('crypto').createHash('sha256').update('system-internal').digest('hex');
+// kept. Older releases used 'system-internal', which anyone could use to load or
+// overwrite it (a successful load also re-hashes it with bcrypt).
+const LEGACY_SYSTEM_PASSWORD = 'system-internal';
 
 function randomPasswordHash() {
   const crypto = require('crypto');
@@ -142,7 +142,7 @@ async function lockLegacySystemConfig() {
   const database = require('./database');
   const systemUUID = process.env.CACHE_WARMUP_UUID || 'system-cache-warmer';
   const owner = await database.getUser(systemUUID);
-  if (owner?.password_hash !== LEGACY_SYSTEM_PASSWORD_HASH) return;
+  if (!owner?.password_hash || !(await database.verifyPasswordHash(LEGACY_SYSTEM_PASSWORD, owner.password_hash))) return;
   const config = await database.getUserConfig(systemUUID);
   if (!config) return;
   await database.saveUserConfig(systemUUID, randomPasswordHash(), config);
