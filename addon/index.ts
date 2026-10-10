@@ -713,7 +713,6 @@ addon.use(requireSigninForApi);
 addon.post("/api/config/save", configApi.saveConfig.bind(configApi));
 addon.post("/api/config/load/:userUUID", configLoadRateLimitMiddleware, configApi.loadConfig.bind(configApi));
 addon.put("/api/config/update/:userUUID", configApi.updateConfig.bind(configApi));
-addon.post("/api/config/migrate", configApi.migrateFromLocalStorage.bind(configApi));
 addon.get('/api/config/is-trusted/:uuid', configApi.isTrusted.bind(configApi));
 addon.post("/api/test-keys", testKeysRateLimitMiddleware, configApi.testApiKeys);
 
@@ -1328,6 +1327,13 @@ addon.post("/api/auth/trakt/disconnect", async (req, res) => {
     if (!userUUID) {
       return res.status(400).json({ error: "userUUID is required" });
     }
+
+    // Disconnecting rewrites the config and the response carries it back, so it
+    // needs the same proof of ownership as loading it.
+    const access = await resolveConfigAccess(req, userUUID, req.body?.password);
+    if (!access || !access.passwordHash) {
+      return res.status(401).json({ error: "Invalid UUID or password" });
+    }
     
     // Load user's config
     const config = await loadConfigFromDatabase(userUUID);
@@ -1526,6 +1532,13 @@ addon.post("/api/auth/simkl/disconnect", async (req, res) => {
     
     if (!userUUID) {
       return res.status(400).json({ error: "userUUID is required" });
+    }
+
+    // Disconnecting rewrites the config and the response carries it back, so it
+    // needs the same proof of ownership as loading it.
+    const access = await resolveConfigAccess(req, userUUID, req.body?.password);
+    if (!access || !access.passwordHash) {
+      return res.status(401).json({ error: "Invalid UUID or password" });
     }
     
     // Load user's config
@@ -3752,6 +3765,13 @@ addon.post("/anilist/disconnect", async (req, res) => {
     if (!userUUID) {
       return res.status(400).json({ error: "userUUID is required" });
     }
+
+    // Disconnecting rewrites the config and the response carries it back, so it
+    // needs the same proof of ownership as loading it.
+    const access = await resolveConfigAccess(req, userUUID, req.body?.password);
+    if (!access || !access.passwordHash) {
+      return res.status(401).json({ error: "Invalid UUID or password" });
+    }
     
     // Load user's config
     const config = await loadConfigFromDatabase(userUUID);
@@ -4010,6 +4030,13 @@ addon.post("/mal/disconnect", async (req, res) => {
 
     if (!userUUID) {
       return res.status(400).json({ error: "userUUID is required" });
+    }
+
+    // Disconnecting rewrites the config and the response carries it back, so it
+    // needs the same proof of ownership as loading it.
+    const access = await resolveConfigAccess(req, userUUID, req.body?.password);
+    if (!access || !access.passwordHash) {
+      return res.status(401).json({ error: "Invalid UUID or password" });
     }
 
     const config = await loadConfigFromDatabase(userUUID);
